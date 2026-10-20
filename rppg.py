@@ -75,6 +75,8 @@ class RPPGProcessor:
         self.red_channel: Deque[float] = deque(maxlen=self.max_buffer_len)
         self.green_channel: Deque[float] = deque(maxlen=self.max_buffer_len)
         self.blue_channel: Deque[float] = deque(maxlen=self.max_buffer_len)
+        # Motion weight per frame (1.0 = clean, 0.0 = fully contaminated)
+        self.motion_weights: Deque[float] = deque(maxlen=self.max_buffer_len)
 
         # Separate ROI streams for Liveness / Anti-Spoofing cross-correlation
         self.forehead_g: Deque[float] = deque(maxlen=self.max_buffer_len)
@@ -103,6 +105,7 @@ class RPPGProcessor:
         self.red_channel.clear()
         self.green_channel.clear()
         self.blue_channel.clear()
+        self.motion_weights.clear()
         self.forehead_g.clear()
         self.cheeks_g.clear()
         self.waveform_history.clear()
@@ -133,10 +136,17 @@ class RPPGProcessor:
         timestamp: Optional[float] = None,
         is_stable: bool = True,
         roi_means: Optional[Dict[str, Tuple[float, float, float]]] = None,
+        motion_score: float = 0.0,
+        motion_level: str = "none",
     ) -> HeartRateMetrics:
         """
         Feed a new frame's average skin RGB, timestamp, and optional ROI breakdown.
         Evaluates physiological pulsatility and anti-spoofing liveness.
+
+        Motion handling (three tiers):
+          none  – clean frame, full weight, normal processing
+          mild  – moving but ROI still valid; reduced weight (0.50), processing continues
+          heavy – severe shake; very low weight (0.05), BPM held, user warned
         """
         now = timestamp if timestamp is not None else time.perf_counter()
         r, g, b = rgb_mean
@@ -145,11 +155,20 @@ class RPPGProcessor:
         if r <= 1.0 and g <= 1.0 and b <= 1.0:
             return HeartRateMetrics(status="NO_FACE", liveness_msg="NO FACE DETECTED")
 
-        # Append to temporal sliding window
+        # Per-frame motion weight: clean=1.0, mild=0.50, heavy=0.05
+        if motion_level == "heavy" or not is_stable:
+            frame_weight = 0.05
+        elif motion_level == "mild":
+            frame_weight = 0.50
+        else:
+            frame_weight = 1.0
+
+        # Append to temporal sliding window (always — we deweight, not discard)
         self.timestamps.append(now)
         self.red_channel.append(r)
         self.green_channel.append(g)
         self.blue_channel.append(b)
+        self.motion_weights.append(frame_weight)
 
         # Store separate forehead and cheek signals for liveness cross-correlation
         if roi_means and "forehead" in roi_means:
@@ -179,14 +198,14 @@ class RPPGProcessor:
                 bpm=self.smooth_bpm if self.smooth_bpm > 0 else 0.0,
             )
 
-        # If subject is moving violently, preserve previous BPM and warn
-        if not is_stable:
+        # Heavy motion: hold last BPM and warn — but still accumulate data
+        if motion_level == "heavy" or not is_stable:
             return HeartRateMetrics(
                 bpm=self.smooth_bpm,
                 confidence=20.0,
                 status="MOTION_ALERT",
-                is_live=False,
-                liveness_msg="MOTION DETECTED - HOLD STILL",
+                is_live=True,
+                liveness_msg="HEAVY MOTION - TRACKING RESUMED SOON",
                 buffer_progress=100.0,
                 is_valid=self.smooth_bpm > 0,
             )
@@ -196,16 +215,41 @@ class RPPGProcessor:
         r_arr = np.array(self.red_channel)
         g_arr = np.array(self.green_channel)
         b_arr = np.array(self.blue_channel)
+        w_arr = np.array(self.motion_weights)  # per-frame quality weights
 
-        # 1. Resample to strictly uniform 30 Hz grid to cancel camera frame jitter
+        # 1. Resample to strictly uniform 30 Hz grid to cancel camera frame jitter.
+        #    Motion-contaminated frames are deweighted: interpolation uses a
+        #    quality-weighted average so nearby clean frames dominate.
         n_samples = int(duration * self.target_fs)
         if n_samples < 45:
             return HeartRateMetrics(buffer_progress=progress, status="BUFFERING", liveness_msg="GATHERING FRAMES")
 
         t_uniform = np.linspace(t_arr[0], t_arr[-1], n_samples)
-        r_unif = np.interp(t_uniform, t_arr, r_arr)
-        g_unif = np.interp(t_uniform, t_arr, g_arr)
-        b_unif = np.interp(t_uniform, t_arr, b_arr)
+
+        def weighted_interp(t_q, t_src, vals, weights):
+            """
+            Vectorised quality-weighted interpolation.
+            Motion-contaminated samples receive low weight so neighbouring
+            clean frames dominate the estimated signal value.
+            """
+            # dist matrix: shape (n_q, n_src)
+            dist = np.abs(t_q[:, None] - t_src[None, :]) + 1e-9
+            # Gaussian kernel (sigma = 1 frame interval) * quality weight
+            sigma = 1.0 / self.target_fs
+            kern = np.exp(-0.5 * (dist / sigma) ** 2) * weights[None, :]
+            kern_sum = kern.sum(axis=1, keepdims=True)
+            kern_sum = np.where(kern_sum < 1e-12, 1.0, kern_sum)
+            return (kern * vals[None, :]).sum(axis=1) / kern_sum.ravel()
+
+        # Only use weighted interp if there are contaminated frames (saves CPU otherwise)
+        if (w_arr < 1.0).any():
+            r_unif = weighted_interp(t_uniform, t_arr, r_arr, w_arr)
+            g_unif = weighted_interp(t_uniform, t_arr, g_arr, w_arr)
+            b_unif = weighted_interp(t_uniform, t_arr, b_arr, w_arr)
+        else:
+            r_unif = np.interp(t_uniform, t_arr, r_arr)
+            g_unif = np.interp(t_uniform, t_arr, g_arr)
+            b_unif = np.interp(t_uniform, t_arr, b_arr)
         fs = self.target_fs
 
         # 2. Extract raw pulse signal based on selected algorithm (with sub-window overlap-add)
@@ -329,6 +373,8 @@ class RPPGProcessor:
         # Determine status
         if not is_live:
             status = "STATIC_PHOTO"
+        elif motion_level == "mild":
+            status = "TRACKING"  # active motion, still processing
         elif confidence >= 60.0:
             status = "STABLE"
         elif confidence >= 30.0:

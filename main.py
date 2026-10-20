@@ -189,6 +189,8 @@ def main():
                 timestamp=t_frame_start,
                 is_stable=detection.is_stable,
                 roi_means=detection.roi_means,
+                motion_score=detection.motion_score,
+                motion_level=detection.motion_level,
             )
 
             # Read live ECG if connected
