@@ -2,7 +2,7 @@
 
 An experimental research project and real-time application comparing contactless webcam heart rate measurement (remote photoplethysmography / rPPG) against an ECG ground-truth reference using low-cost hardware.
 
-Author: Gourab (Academy of Technology / Build Club)
+Author: Gourab
 
 ---
 
