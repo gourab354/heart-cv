@@ -13,6 +13,7 @@ Controls:
 """
 
 import argparse
+import collections
 import datetime
 import os
 import sys
@@ -23,6 +24,7 @@ import numpy as np
 from detector import FaceDetector
 from rppg import RPPGProcessor
 from visualizer import HUDVisualizer
+from report_generator import generate_report
 
 
 def parse_args():
@@ -133,9 +135,17 @@ def main():
         except Exception as e:
             print(f"[!] Could not start ECG receiver: {e}")
 
-    # Create Snapshot Directory
+    # Create Snapshot & Report Directories
     snapshot_dir = os.path.join(os.getcwd(), "snapshots")
     os.makedirs(snapshot_dir, exist_ok=True)
+    report_dir = os.path.join(os.getcwd(), "reports")
+    os.makedirs(report_dir, exist_ok=True)
+
+    # 1-minute rolling biometric record buffer (one entry per second ~30 frames)
+    REPORT_WINDOW_SEC = 60
+    record_buffer: collections.deque = collections.deque(maxlen=REPORT_WINDOW_SEC * 2)  # 2 Hz sampling
+    session_start = datetime.datetime.now()
+    last_record_time = 0.0  # perf_counter timestamp of last appended record
 
     # 3. Setup Window
     window_name = "Heart Vision - Contactless Pulse Detector"
@@ -155,6 +165,7 @@ def main():
     print("    [C]         : Cycle Algorithm (POS -> CHROM -> GREEN)")
     print("    [M]         : Toggle Vascular ROIs")
     print("    [S]         : Save Telemetry Snapshot")
+    print("    [P]         : Download 1-Min PDF Report")
     print("    [F]         : Toggle Fullscreen")
     print("-----------------------------------------------------------------\n")
 
@@ -199,6 +210,18 @@ def main():
             if ecg_receiver and ecg_receiver.is_connected:
                 ecg_bpm, _ = ecg_receiver.get_bpm()
                 ecg_waveform = ecg_receiver.get_recent_waveform(200)
+
+            # Append biometric record at ~2 Hz for the 1-min report buffer
+            if metrics.bpm > 0 and (t_frame_start - last_record_time) >= 0.5:
+                record_buffer.append({
+                    "t":          t_frame_start - (session_start.timestamp() if hasattr(session_start, 'timestamp') else 0),
+                    "bpm":        metrics.bpm,
+                    "confidence": metrics.confidence,
+                    "hrv_rmssd":  metrics.hrv_rmssd,
+                    "ibi_ms":     metrics.ibi_ms,
+                    "snr_db":     metrics.snr_db,
+                })
+                last_record_time = t_frame_start
 
             # 3. Calculate Smooth FPS
             frame_dt = max(1e-4, t_frame_start - prev_frame_time)
@@ -251,6 +274,26 @@ def main():
                 filepath = os.path.join(snapshot_dir, filename)
                 cv2.imwrite(filepath, canvas)
                 print(f"[+] Snapshot saved: {filepath}")
+
+            elif key in [ord("p"), ord("P")]:
+                records = list(record_buffer)
+                if len(records) < 4:
+                    print("[!] Not enough data yet for a report. Keep measuring for a few seconds.")
+                else:
+                    # Normalise timestamps so t=0 at first record
+                    t0 = records[0]["t"]
+                    for rec in records:
+                        rec["t"] = rec["t"] - t0
+                    try:
+                        pdf_path = generate_report(
+                            records,
+                            output_dir=report_dir,
+                            algorithm=processor.algorithm,
+                            session_start=session_start,
+                        )
+                        print(f"[+] PDF Report saved: {pdf_path}")
+                    except Exception as e:
+                        print(f"[!] Report generation failed: {e}")
 
             elif key in [ord("f"), ord("F")]:
                 is_fullscreen = not is_fullscreen

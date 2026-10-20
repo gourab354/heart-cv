@@ -670,10 +670,10 @@ class HUDVisualizer:
         cv2.rectangle(canvas, (x, y), (x + w, y + h), UIColors.PANEL_BG, -1)
         cv2.rectangle(canvas, (x, y), (x + w, y + h), UIColors.PANEL_BORDER, 1)
 
-        line1 = "[R] Reset   [C] Switch Algo   [M] Toggle ROIs"
-        line2 = "[S] Snapshot   [Q/ESC] Quit"
-        cv2.putText(canvas, line1, (x + 12, y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.40, UIColors.TEXT_MUTED, 1, cv2.LINE_AA)
-        cv2.putText(canvas, line2, (x + 12, y + 42), cv2.FONT_HERSHEY_SIMPLEX, 0.40, UIColors.TEXT_MUTED, 1, cv2.LINE_AA)
+        line1 = "[R] Reset  [C] Algo  [M] ROIs  [F] Fullscreen"
+        line2 = "[S] Snapshot   [P] PDF Report (1 min)   [Q/ESC] Quit"
+        cv2.putText(canvas, line1, (x + 12, y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.38, UIColors.TEXT_MUTED, 1, cv2.LINE_AA)
+        cv2.putText(canvas, line2, (x + 12, y + 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, UIColors.TEXT_MUTED, 1, cv2.LINE_AA)
 
         fps_str = f"{fps:.0f} FPS"
         cv2.putText(canvas, fps_str, (x + w - 70, y + 34), cv2.FONT_HERSHEY_SIMPLEX, 0.50, UIColors.GREEN_ACCENT, 1, cv2.LINE_AA)
