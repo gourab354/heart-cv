@@ -30,16 +30,16 @@ from matplotlib.collections import LineCollection
 import numpy as np
 
 
-# ── Colour palette (dark clinical theme, hex) ────────────────────────────────
-BG     = "#0B0E12"
-PANEL  = "#12171E"
-CYAN   = "#1EC8EB"
-GREEN  = "#50E650"
-AMBER  = "#FFA628"
-RED    = "#F03C3C"
-VIOLET = "#B46EE8"
-WHITE  = "#F5F5F5"
-MUTED  = "#8A8A9A"
+# ── Colour palette (professional white theme, hex) ───────────────────────────
+BG     = "#FFFFFF"   # page white
+PANEL  = "#F5F7FA"   # very light grey for chart backgrounds
+CYAN   = "#0099CC"   # deep teal-blue
+GREEN  = "#2E8B57"   # professional green
+AMBER  = "#D97706"   # warm amber
+RED    = "#DC2626"   # clear red
+VIOLET = "#7C3AED"   # indigo-violet
+WHITE  = "#1A1A2E"   # near-black for text (on white bg)
+MUTED  = "#6B7280"   # medium grey for labels/muted text
 
 
 def _hr_zone(bpm: float):
@@ -280,15 +280,15 @@ def generate_report(
     tbl.set_fontsize(8.5)
 
     for (ri, ci), cell in tbl.get_celld().items():
-        cell.set_facecolor("#1A2030" if ri == 0 else PANEL)
-        cell.set_edgecolor(MUTED)
+        cell.set_facecolor("#E8EDF5" if ri == 0 else PANEL)
+        cell.set_edgecolor("#D1D5DB")
         if ri == 0:
-            cell.get_text().set_color(WHITE)
+            cell.get_text().set_color("#1A1A2E")
             cell.get_text().set_fontweight("bold")
         elif ci == 3:
             cell.get_text().set_color(tbl_rows[ri - 1][3][1])
         else:
-            cell.get_text().set_color(WHITE if ci == 1 else MUTED)
+            cell.get_text().set_color("#1A1A2E" if ci == 1 else MUTED)
 
     ax_tbl.set_title("Summary Statistics", color=WHITE, fontsize=10, pad=8)
 
@@ -303,10 +303,10 @@ def generate_report(
     ax_disc.text(0.5, 0.5, disclaimer, ha="center", va="center",
                  fontsize=7.5, color=MUTED, style="italic",
                  transform=ax_disc.transAxes,
-                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#1A1020",
-                           edgecolor=MUTED, alpha=0.8))
+                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#FFF8E7",
+                           edgecolor="#D97706", alpha=0.9))
 
     # ── Save ────────────────────────────────────────────────────────────────
-    fig.savefig(out_path, dpi=150, facecolor=BG, bbox_inches="tight")
+    fig.savefig(out_path, dpi=150, facecolor="white", bbox_inches="tight")
     plt.close(fig)
     return os.path.abspath(out_path)
