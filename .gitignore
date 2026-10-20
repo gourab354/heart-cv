@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Environments
+venv/
+env/
+.env
+
+# Project specific artifacts
+snapshots/
+synth_data/
+synth_results/
+results/
+data/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
